@@ -240,15 +240,7 @@ def build_monthly_heatmap(monthly_data: pd.DataFrame | None = None) -> go.Figure
     for i, month in enumerate(monthly_data["月"]):
         avg = np.mean([monthly_data.iloc[i][col] for col in cols])
         if avg >= 70:
-            fig.add_vline(
-                x=month, line_dash="dot", line_color="#c62828", line_width=2,
-                annotation_text="繁忙期" if i == next(
-                    j for j, m in enumerate(monthly_data["月"]) if
-                    np.mean([monthly_data.iloc[j][c] for c in cols]) >= 70
-                ) else "",
-                annotation_font_color="#c62828",
-                annotation_font_size=11,
-            )
+            fig.add_vline(x=month, line_dash="dot", line_color="#c62828", line_width=2)
 
     return fig
 
