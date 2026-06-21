@@ -15,6 +15,7 @@ import optimization
 import refrigerator_ui
 import sakai_scheduler
 import capacity_simulator
+import logistics_strategy
 from geocode import build_facility_lookup
 
 # ──────────────────────────────────────────────
@@ -136,9 +137,10 @@ with st.sidebar:
 # ──────────────────────────────────────────────
 st.header("🚛 配送運行「見える化」ダッシュボード　｜　舞台ファーム 境町拠点")
 
-tab_sakai, tab_sim, tab_route, tab_heat, tab_rev, tab_opt = st.tabs([
+tab_sakai, tab_sim, tab_strategy, tab_route, tab_heat, tab_rev, tab_opt = st.tabs([
     "🏭 境町拠点 スケジュール最適化",
     "📦 容量・収益シミュレーション",
+    "🚀 物流プラットフォーム戦略",
     "🗺️ ルートマップ",
     "🌡️ 積載率ヒートマップ",
     "💰 エリア別収益マップ",
@@ -391,7 +393,261 @@ with tab_sim:
 
 
 # ══════════════════════════════════════════════
-# Tab 3: ルートマップ (旧Tab 2)
+# Tab 3: 物流プラットフォーム戦略
+# ══════════════════════════════════════════════
+with tab_strategy:
+    st.subheader("🚀 物流プラットフォーム戦略｜対サラダボウル・関東全域カバー")
+    st.caption("GS境 × KIFA川越 × 中越通運（羽生）3拠点体制でリード2タイム配送・関東全域制覇を目指す戦略設計シート")
+
+    # ── 戦略コンセプトバナー
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1565C0,#0d47a1);color:white;
+         padding:16px 24px;border-radius:10px;margin-bottom:16px">
+      <div style="font-size:20px;font-weight:bold;margin-bottom:6px">
+        🎯 舞台ファーム プラットフォーム戦略コンセプト
+      </div>
+      <div style="font-size:14px;opacity:0.92;line-height:1.8">
+        「産地直結・OEM対応・48h以内配送」でサラダボウルが取れないニッチ高付加価値市場を独占する<br>
+        ▶ 小・中規模外食チェーン / 高級スーパー / 給食センター / 食品メーカー（OEM原料）<br>
+        ▶ 3拠点クロスドッキングで関東全域2h以内着荷を実現
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── タブ内サブタブ
+    sub_map, sub_cost, sub_kanto, sub_vs, sub_strategy_list, sub_kpi, sub_roadmap = st.tabs([
+        "🗺️ 拠点戦略マップ",
+        "💴 拠点コスト比較",
+        "📊 関東エリア分析",
+        "🆚 vs サラダボウル",
+        "💡 戦略オプション提案",
+        "📋 KPI管理シート",
+        "📅 実行ロードマップ",
+    ])
+
+    # ── 拠点戦略マップ ──────────────────────────
+    with sub_map:
+        st.markdown("#### 🗺️ 3拠点カバレッジマップ（関東全域）")
+        st.caption("円＝各拠点のカバー圏（点線）。エリアマーカーの大きさ＝月間需要量。色＝担当拠点")
+        hub_map = logistics_strategy.build_hub_strategy_map()
+        st_folium(hub_map, width="100%", height=560, returned_objects=[])
+
+        st.markdown("---")
+        st.markdown("#### 🏭 拠点サマリー")
+        for hub_name, hub in logistics_strategy.HUBS.items():
+            icon = hub["icon"]
+            color = hub["color"]
+            with st.expander(f"{icon} **{hub_name}**　ステータス: {hub['status']}"):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("容量", f"{hub['capacity_pallets']}P")
+                    st.metric("月額コスト", f"¥{hub['monthly_cost_yen']:,}")
+                with c2:
+                    st.metric("1P単価", f"¥{hub['cost_per_pallet']:,}")
+                    st.metric("標準リード", f"{hub['lead_time_h']}h〜")
+                with c3:
+                    st.success(f"**強み：** {hub['strength']}")
+                    st.error(f"**課題：** {hub['weakness']}")
+
+    # ── コスト比較 ──────────────────────────────
+    with sub_cost:
+        st.markdown("#### 💴 3拠点 コスト比較分析")
+
+        cost_fig = logistics_strategy.build_cost_comparison_chart()
+        st.plotly_chart(cost_fig, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("---")
+        st.markdown("#### 📊 シナリオ別 年間コスト比較")
+        st.caption("3つのシナリオで年間拠点コストを比較。シナリオBが最推奨。")
+        df_scenario = logistics_strategy.calc_scenario_comparison()
+        scenario_fig = logistics_strategy.build_scenario_chart(df_scenario)
+        st.plotly_chart(scenario_fig, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("---")
+        st.markdown("#### 📋 シナリオ詳細比較表")
+        display_scenario = df_scenario.copy()
+        display_scenario["年間拠点コスト(円)"] = display_scenario["年間拠点コスト(円)"].apply(lambda x: f"¥{x:,}")
+        display_scenario["現状比コスト削減(円)"] = display_scenario["現状比コスト削減(円)"].apply(lambda x: f"▲¥{x:,}" if x > 0 else "基準")
+        display_scenario["現状比削減率(%)"] = display_scenario["現状比削減率(%)"].apply(lambda x: f"{x}%" if x != 0 else "基準")
+        st.dataframe(display_scenario, use_container_width=True, hide_index=True)
+
+        # 川越コストシミュレーター
+        st.markdown("---")
+        st.markdown("#### 🎛️ KIFA川越コスト削減シミュレーター")
+        kifa_current = st.slider("KIFA川越 現状月額コスト（万円）", 50, 300, 180, 10)
+        kifa_reduction = st.slider("削減目標率（%）", 0, 80, 60, 5)
+        kifa_target = int(kifa_current * (1 - kifa_reduction / 100))
+        hanyu_cost  = st.slider("中越通運（羽生）月額コスト（万円）", 50, 200, 90, 10)
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.metric("現状KIFA月額", f"¥{kifa_current*10000:,}", "現在")
+        with k2:
+            st.metric("目標KIFA月額", f"¥{kifa_target*10000:,}", f"▲{kifa_reduction}%削減")
+        with k3:
+            net_saving = (kifa_current - kifa_target - hanyu_cost) * 10000
+            st.metric("羽生追加後 月間純節約", f"¥{net_saving:,}", f"年間 ¥{net_saving*12:,}")
+
+    # ── 関東エリア分析 ──────────────────────────
+    with sub_kanto:
+        st.markdown("#### 📊 関東エリア別 需要・担当拠点マトリクス")
+        demand_fig = logistics_strategy.build_kanto_demand_chart()
+        st.plotly_chart(demand_fig, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("---")
+        st.markdown("#### 📋 エリア別 詳細データ")
+        df_kanto = logistics_strategy.calc_kanto_coverage_table()
+        total_demand = df_kanto["月間需要(パレット)"].sum()
+        total_rev = df_kanto["月間売上見込(円)"].sum()
+
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            st.metric("関東エリア合計月間需要", f"{total_demand}P/月")
+        with k2:
+            st.metric("月間売上見込み合計", f"¥{total_rev/1e6:.1f}M")
+        with k3:
+            st.metric("年間売上見込み合計", f"¥{total_rev*12/1e6:.1f}M")
+
+        df_kanto_disp = df_kanto.copy()
+        df_kanto_disp["月間売上見込(円)"] = df_kanto_disp["月間売上見込(円)"].apply(lambda x: f"¥{int(x):,}")
+        df_kanto_disp["年間売上見込(円)"] = df_kanto_disp["年間売上見込(円)"].apply(lambda x: f"¥{int(x):,}")
+        st.dataframe(df_kanto_disp, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("#### 🔍 拠点-エリア 担当割当詳細")
+        df_assign = logistics_strategy.calc_zone_hub_assignment()
+        df_main = df_assign[df_assign["主担当"] == True][["エリア","拠点","直線距離(km)","推定リードタイム(h)","優先度"]]
+        st.dataframe(df_main.sort_values("優先度"), use_container_width=True, hide_index=True)
+
+    # ── vs サラダボウル ──────────────────────────
+    with sub_vs:
+        st.markdown("#### 🆚 サラダボウル vs 舞台ファーム 差別化分析")
+        radar_fig = logistics_strategy.build_vs_competitor_radar()
+        st.plotly_chart(radar_fig, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("---")
+        col_comp, col_butai = st.columns(2)
+        with col_comp:
+            st.markdown("##### ⚠️ サラダボウル（競合）")
+            cp = logistics_strategy.COMPETITOR_PROFILE
+            st.markdown(f"**ターゲット：** {cp['target_segment']}")
+            st.markdown("**強み：**")
+            for s in cp["strength"]:
+                st.markdown(f"　✅ {s}")
+            st.markdown("**弱み（舞台ファームが攻めるポイント）：**")
+            for w in cp["weakness"]:
+                st.markdown(f"　🎯 **{w}**")
+
+        with col_butai:
+            st.markdown("##### 🏆 舞台ファーム 差別化戦略")
+            bd = logistics_strategy.BUTAI_DIFFERENTIATION
+            st.info(f"**コンセプト：** {bd['戦略コンセプト']}")
+            st.markdown("**狙うセグメント（サラダボウルが苦手な市場）：**")
+            for seg in bd["ターゲットセグメント"]:
+                st.markdown(f"　🎯 {seg}")
+            st.markdown("**差別化ポイント：**")
+            for pt in bd["差別化ポイント"]:
+                st.markdown(f"　⚡ {pt}")
+
+    # ── 戦略オプション提案 ──────────────────────
+    with sub_strategy_list:
+        st.markdown("#### 💡 戦略オプション一覧（優先度順）")
+        priority_order = {"最優先": 0, "高": 1, "中": 2, "低（中長期）": 3}
+        sorted_opts = sorted(
+            logistics_strategy.STRATEGY_OPTIONS,
+            key=lambda x: priority_order.get(x["priority"], 9),
+        )
+
+        priority_colors = {
+            "最優先": ("🔴", "#ffcdd2"),
+            "高":     ("🟠", "#fff3e0"),
+            "中":     ("🟡", "#fffde7"),
+            "低（中長期）": ("🟢", "#e8f5e9"),
+        }
+
+        for opt in sorted_opts:
+            icon, bg = priority_colors.get(opt["priority"], ("⚪", "#f5f5f5"))
+            with st.expander(f"{icon} **{opt['name']}**　[{opt['category']}] 優先度：{opt['priority']}"):
+                st.markdown(f"**概要：** {opt['summary']}")
+                st.markdown(f"**詳細：** {opt['detail']}")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.success(f"**期待効果：** {opt['expected_cost_reduction']}")
+                with c2:
+                    st.info(f"**実行期間：** {opt['timeline']}")
+                with c3:
+                    st.warning(f"**KPI：** {opt['kpi']}")
+
+    # ── KPI管理シート ────────────────────────────
+    with sub_kpi:
+        st.markdown("#### 📋 プラットフォームKPI管理シート")
+        st.caption("目標値はシステム設定値です。実績列に数値を入力することで達成率が自動計算されます。")
+
+        kifa_act = st.number_input("KIFA川越 今月実績コスト（円）", 0, 5_000_000, 1_800_000, 100_000, key="kifa_act")
+        df_kpi = logistics_strategy.calc_platform_kpi_sheet(kifa_cost_actual=kifa_act)
+        st.dataframe(df_kpi, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("#### 📊 月次アクション管理")
+        action_data = {
+            "アクション": [
+                "KIFA川越 コスト交渉・見直し",
+                "中越通運（羽生）現地視察・見積取得",
+                "埼玉北部エリア 新規顧客開拓",
+                "東京都心圏 サラダボウル切替営業",
+                "OEM提案書の新規送付",
+                "混載パートナー農家へのヒアリング",
+            ],
+            "担当者": ["営業/経営", "物流", "営業", "営業", "営業", "物流"],
+            "期限": ["今月末", "2週間以内", "今月中", "今月中", "今月中", "来月"],
+            "ステータス": ["未着手", "未着手", "未着手", "未着手", "未着手", "未着手"],
+            "優先度": ["最優先", "最優先", "高", "高", "中", "中"],
+        }
+        st.data_editor(
+            pd.DataFrame(action_data),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ステータス": st.column_config.SelectboxColumn(
+                    "ステータス", options=["未着手", "進行中", "完了", "保留"], required=True
+                ),
+                "優先度": st.column_config.SelectboxColumn(
+                    "優先度", options=["最優先", "高", "中", "低"], required=True
+                ),
+            },
+        )
+
+    # ── 実行ロードマップ ─────────────────────────
+    with sub_roadmap:
+        st.markdown("#### 📅 戦略実行ロードマップ（今後12ヶ月）")
+        roadmap_fig = logistics_strategy.build_implementation_timeline()
+        st.plotly_chart(roadmap_fig, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("---")
+        st.markdown("""
+        #### 🎯 フェーズ別 実行計画
+
+        | フェーズ | 時期 | 主要アクション | 目標 |
+        |---------|------|---------------|------|
+        | **Phase 1**<br>リスクヘッジ | 今月〜2ヶ月 | 中越通運（羽生）視察・契約交渉 | KIFA川越コスト▲30%削減 |
+        | **Phase 2**<br>3拠点確立 | 2〜4ヶ月 | GS境→羽生→川越チェーン試験運用 | リード2タイム達成率80%以上 |
+        | **Phase 3**<br>関東拡張 | 3〜6ヶ月 | 千葉・神奈川エリア営業開始 | S/A優先エリア全カバー |
+        | **Phase 4**<br>差別化加速 | 4〜8ヶ月 | 産直EC・混載PF・OEM営業強化 | 月間新規3社獲得 |
+        | **Phase 5**<br>DX化 | 6〜12ヶ月 | デジタル受発注PF構築 | 受注工数▲40%・顧客LTV+10% |
+        """)
+
+        st.markdown("---")
+        st.info("""
+        **💡 今すぐできる最優先アクション（今週中）**
+
+        1. **中越通運（羽生センター）への問い合わせ** → 月額見積・契約条件・容量確認
+        2. **KIFA川越との再交渉** → 現状コストの根拠確認・削減交渉
+        3. **埼玉北部〜群馬方面の既存顧客リスト整備** → 羽生センター移行時の配送見直し準備
+        4. **対サラダボウル トークスクリプト作成** → 「小ロット・OEM・産地直送」の強みを明文化
+        """)
+
+
+# ══════════════════════════════════════════════
+# Tab 4: ルートマップ
 # ══════════════════════════════════════════════
 with tab_route:
     st.subheader("運行ルート × 積載率マップ")
