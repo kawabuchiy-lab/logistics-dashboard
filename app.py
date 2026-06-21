@@ -14,6 +14,7 @@ import map_view
 import optimization
 import refrigerator_ui
 import sakai_scheduler
+import capacity_simulator
 from geocode import build_facility_lookup
 
 # ──────────────────────────────────────────────
@@ -135,8 +136,9 @@ with st.sidebar:
 # ──────────────────────────────────────────────
 st.header("🚛 配送運行「見える化」ダッシュボード　｜　舞台ファーム 境町拠点")
 
-tab_sakai, tab_route, tab_heat, tab_rev, tab_opt = st.tabs([
+tab_sakai, tab_sim, tab_route, tab_heat, tab_rev, tab_opt = st.tabs([
     "🏭 境町拠点 スケジュール最適化",
+    "📦 容量・収益シミュレーション",
     "🗺️ ルートマップ",
     "🌡️ 積載率ヒートマップ",
     "💰 エリア別収益マップ",
@@ -282,7 +284,114 @@ with tab_sakai:
 
 
 # ══════════════════════════════════════════════
-# Tab 2: ルートマップ
+# Tab 2: 容量・収益シミュレーション
+# ══════════════════════════════════════════════
+with tab_sim:
+    st.subheader("📦 GS境拠点 容量・収益シミュレーション")
+    st.caption("冷蔵庫3棟（計364パレット）をフル活用した場合の月別・日別取り扱いパレット数と売上見込みを算出します。")
+
+    # ── パラメータ設定 ──
+    with st.expander("⚙️ シミュレーション設定（クリックして展開）", expanded=True):
+        sim_c1, sim_c2 = st.columns(2)
+        with sim_c1:
+            rev_per_pallet = st.slider(
+                "1パレットあたり売上単価（円）",
+                min_value=10000, max_value=200000, value=55000, step=5000,
+                help="パレット1つを出荷した際の平均売上（運賃・保管料等含む）",
+            )
+        with sim_c2:
+            turnover = st.slider(
+                "月間パレット回転数（回/月）",
+                min_value=1.0, max_value=10.0, value=4.0, step=0.5,
+                help="1パレットが月に何回入出庫するか（回転数が高いほどスループットが増える）",
+            )
+
+    # ── 計算実行 ──
+    df_sim = capacity_simulator.calc_monthly_capacity(
+        revenue_per_pallet=rev_per_pallet,
+        turnover_per_month=turnover,
+    )
+    annual_total = df_sim["売上見込(円)"].sum()
+    annual_throughput = df_sim["月間取扱数"].sum()
+
+    # ── 年間サマリー KPI ──
+    st.markdown("---")
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.metric("📦 年間取り扱いパレット数", f"{annual_throughput:,}P")
+    with k2:
+        st.metric("💰 年間売上見込み", f"¥{annual_total/1e6:.1f}M")
+    with k3:
+        peak_row = df_sim.loc[df_sim["使用パレット"].idxmax()]
+        st.metric("🔴 繁忙期ピーク月", peak_row["月"], f"占有率 {peak_row['占有率(%)']:.0f}%")
+    with k4:
+        st.metric("🏭 総容量", "364パレット", "第一120P＋第二120P＋第三124P")
+
+    st.markdown("---")
+
+    # ── チャート ──
+    st.markdown("#### 📊 月別 パレット取り扱い数（占有率・空き容量）")
+    cap_fig = capacity_simulator.build_monthly_capacity_chart(df_sim)
+    st.plotly_chart(cap_fig, use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown("#### 💰 月別 売上見込み")
+    rev_fig = capacity_simulator.build_revenue_chart(df_sim)
+    st.plotly_chart(rev_fig, use_container_width=True, config={"displayModeBar": False})
+
+    st.markdown("#### 🔄 月間・日別 取り扱いパレット数")
+    tp_fig = capacity_simulator.build_throughput_chart(df_sim)
+    st.plotly_chart(tp_fig, use_container_width=True, config={"displayModeBar": False})
+
+    # ── シーズン別サマリーテーブル ──
+    st.markdown("---")
+    st.markdown("#### 🗓️ シーズン別 集計サマリー")
+    season_table = capacity_simulator.build_season_comparison_table(df_sim)
+    season_order = {"繁忙期": 0, "通常期": 1, "閑散期": 2}
+    season_table["__order"] = season_table["シーズン"].map(season_order)
+    season_table = season_table.sort_values("__order").drop(columns=["__order"])
+    st.dataframe(season_table, use_container_width=True, hide_index=True)
+
+    # ── 月別詳細テーブル ──
+    st.markdown("---")
+    st.markdown("#### 📋 月別 詳細データ")
+    display_cols = ["月", "シーズン", "占有率(%)", "使用パレット", "空きパレット",
+                    "稼働日数", "月間取扱数", "日別取扱数", "売上見込(円)"]
+    df_display = df_sim[display_cols].copy()
+    df_display["売上見込(円)"] = df_display["売上見込(円)"].apply(lambda x: f"¥{int(x):,}")
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+    # ── 特定日の詳細計算 ──
+    st.markdown("---")
+    st.markdown("#### 🔍 特定日の詳細容量チェック")
+    st.caption("今日の冷蔵庫占有率を入力して、その日の日別取り扱い可能数と売上見込みを確認できます。")
+    day_c1, day_c2, day_c3, day_c4 = st.columns(4)
+    with day_c1:
+        day_month = st.selectbox("月", list(range(1, 13)), index=datetime.date.today().month - 1,
+                                  format_func=lambda m: f"{m}月")
+    with day_c2:
+        day_ref1 = st.number_input("第一冷蔵庫(%)", 0, 100, 65, 5, key="day_ref1")
+    with day_c3:
+        day_ref2 = st.number_input("第二冷蔵庫(%)", 0, 100, 78, 5, key="day_ref2")
+    with day_c4:
+        day_ref3 = st.number_input("第三冷蔵庫(%)", 0, 100, 42, 5, key="day_ref3")
+
+    day_result = capacity_simulator.calc_daily_capacity(
+        month=day_month, ref1_pct=day_ref1, ref2_pct=day_ref2, ref3_pct=day_ref3,
+        revenue_per_pallet=rev_per_pallet, turnover_per_month=turnover,
+    )
+    dr1, dr2, dr3, dr4 = st.columns(4)
+    with dr1:
+        st.metric("使用パレット", f"{day_result['使用パレット']}P", f"稼働率 {day_result['稼働率']}%")
+    with dr2:
+        st.metric("空きパレット", f"{day_result['空きパレット']}P", f"満杯まで {day_result['満杯まで']}P")
+    with dr3:
+        st.metric("日別取り扱い可能数", f"{day_result['日別取扱数']}P/日")
+    with dr4:
+        st.metric("日別売上見込み", f"¥{day_result['日別売上見込']:,}")
+
+
+# ══════════════════════════════════════════════
+# Tab 3: ルートマップ (旧Tab 2)
 # ══════════════════════════════════════════════
 with tab_route:
     st.subheader("運行ルート × 積載率マップ")
