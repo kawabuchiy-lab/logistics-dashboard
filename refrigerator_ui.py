@@ -186,16 +186,18 @@ def build_monthly_heatmap(monthly_data: pd.DataFrame | None = None) -> go.Figure
             "第三冷蔵庫": np.clip([b - 15 + np.random.randint(-5, 10) for b in base], 5, 95),
         })
 
-    z = monthly_data[["第一冷蔵庫", "第二冷蔵庫", "第三冷蔵庫"]].values.T.tolist()
-    text = [[f"{v:.0f}%" for v in row] for row in z]
+    cols = ["第一冷蔵庫", "第二冷蔵庫", "第三冷蔵庫"]
+    z = monthly_data[cols].values.T.tolist()
+    # ホバーに詳細、セル内は数値のみシンプルに
+    text = [[f"{v:.0f}" for v in row] for row in z]
 
     fig = go.Figure(go.Heatmap(
         z=z,
         x=monthly_data["月"].tolist(),
         y=["第一冷蔵庫", "第二冷蔵庫", "第三冷蔵庫"],
         text=text,
-        texttemplate="%{text}",
-        textfont={"size": 11},
+        texttemplate="<b>%{text}%</b>",
+        textfont={"size": 14, "color": "black"},
         colorscale=[
             [0.0,  "#4dac26"],
             [0.3,  "#a1d99b"],
@@ -205,20 +207,48 @@ def build_monthly_heatmap(monthly_data: pd.DataFrame | None = None) -> go.Figure
             [1.0,  "#a50026"],
         ],
         zmin=0, zmax=100,
-        colorbar=dict(title="占有率(%)", ticksuffix="%"),
+        colorbar=dict(
+            title=dict(text="占有率", side="right"),
+            ticksuffix="%",
+            thickness=15,
+            len=0.8,
+        ),
+        xgap=3,
+        ygap=3,
     ))
 
     fig.update_layout(
-        title={"text": "月別 冷蔵庫占有率（繁忙期・閑散期の把握）", "x": 0.5, "xanchor": "center"},
-        height=220,
-        margin=dict(t=50, b=30, l=120, r=60),
-        xaxis={"side": "bottom"},
+        title={
+            "text": "📅 月別 冷蔵庫占有率（繁忙期・閑散期の把握）",
+            "x": 0.5, "xanchor": "center",
+            "font": {"size": 15},
+        },
+        height=300,
+        margin=dict(t=60, b=50, l=130, r=80),
+        xaxis={
+            "side": "bottom",
+            "tickfont": {"size": 13},
+            "tickangle": 0,
+        },
+        yaxis={
+            "tickfont": {"size": 13},
+        },
+        plot_bgcolor="white",
     )
-    # 繁忙期マーカー
+
+    # 繁忙期マーカー（赤点線）
     for i, month in enumerate(monthly_data["月"]):
-        avg = np.mean([monthly_data.iloc[i][col] for col in ["第一冷蔵庫", "第二冷蔵庫", "第三冷蔵庫"]])
+        avg = np.mean([monthly_data.iloc[i][col] for col in cols])
         if avg >= 70:
-            fig.add_vline(x=month, line_dash="dot", line_color="#c62828", line_width=1.5)
+            fig.add_vline(
+                x=month, line_dash="dot", line_color="#c62828", line_width=2,
+                annotation_text="繁忙期" if i == next(
+                    j for j, m in enumerate(monthly_data["月"]) if
+                    np.mean([monthly_data.iloc[j][c] for c in cols]) >= 70
+                ) else "",
+                annotation_font_color="#c62828",
+                annotation_font_size=11,
+            )
 
     return fig
 
