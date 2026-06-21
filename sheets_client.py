@@ -47,7 +47,9 @@ def load_sheet_as_csv(sheet_url: str, gid: str = "0") -> pd.DataFrame:
     try:
         resp = requests.get(csv_url, timeout=15, allow_redirects=True)
         resp.raise_for_status()
-        df = pd.read_csv(io.StringIO(resp.text))
+        # 文字化け防止：UTF-8 を明示してデコード
+        resp.encoding = "utf-8"
+        df = pd.read_csv(io.StringIO(resp.text), encoding="utf-8")
         return df
     except Exception as e:
         st.warning(f"CSV取得失敗（{e}）。サービスアカウント認証を試みます。")
