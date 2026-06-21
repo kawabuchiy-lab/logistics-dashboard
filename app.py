@@ -308,8 +308,7 @@ with tab_heat:
         .sort_values("平均(%)").reset_index()
     )
     if not area_table.empty:
-        st.dataframe(area_table.style.background_gradient(subset=["平均(%)"], cmap="RdYlGn"),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(area_table, use_container_width=True, hide_index=True)
 
 
 # ══════════════════════════════════════════════
